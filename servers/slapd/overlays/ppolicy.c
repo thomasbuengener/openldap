@@ -107,7 +107,7 @@ typedef struct pw_hist {
 /* Operational attributes */
 static AttributeDescription *ad_pwdChangedTime, *ad_pwdAccountLockedTime,
 	*ad_pwdFailureTime, *ad_pwdHistory, *ad_pwdGraceUseTime, *ad_pwdReset,
-	*ad_pwdPolicySubentry;
+	*ad_pwdPolicySubentry, *ad_pwdEndTime;
 
 static struct schema_info {
 	char *def;
@@ -163,6 +163,15 @@ static struct schema_info {
 		"SYNTAX 1.3.6.1.4.1.1466.115.121.1.7 "
 		"SINGLE-VALUE USAGE directoryOperation )",
 		&ad_pwdReset },
+	{	"( 1.3.6.1.4.1.42.2.27.8.1.28 "
+		"NAME ( 'pwdEndTime' ) "
+		"DESC 'The time the password becomes disabled' "
+		"EQUALITY generalizedTimeMatch "
+		"ORDERING generalizedTimeOrderingMatch "
+		"SYNTAX 1.3.6.1.4.1.1466.115.121.1.24 "
+		"SINGLE-VALUE "
+		"USER-MODIFICATION USAGE directoryOperation )",
+		&ad_pwdEndTime },
 	{	"( 1.3.6.1.4.1.42.2.27.8.1.23 "
 		"NAME ( 'pwdPolicySubentry' ) "
 		"DESC 'The pwdPolicy subentry in effect for this object' "
@@ -185,7 +194,6 @@ static AttributeDescription *ad_pwdMinAge, *ad_pwdMaxAge, *ad_pwdInHistory,
 	*ad_pwdFailureCountInterval, *ad_pwdCheckModule, *ad_pwdLockout,
 	*ad_pwdMustChange, *ad_pwdAllowUserChange, *ad_pwdSafeModify,
 	*ad_pwdAttribute, *ad_pwdMaxRecordedFailure;
-
 #define TAB(name)	{ #name, &ad_##name }
 
 static struct schema_info pwd_UsSchema[] = {
@@ -370,6 +378,28 @@ account_locked( Operation *op, Entry *e,
 			m->sml_desc = ad_pwdAccountLockedTime;
 			m->sml_next = *mod;
 			*mod = m;
+		}
+	}
+
+	if ( (la = attr_find( e->e_attrs, ad_pwdEndTime )) != NULL ) {
+		BerVarray vals = la->a_nvals;
+
+		/*
+		 * there is a end time stamp - we now need to know if it's
+		 * a valid one.
+		 */
+		if (vals[0].bv_val != NULL) {
+			time_t then, now;
+			Modifications *m;
+
+			if ((then = parse_time( vals[0].bv_val )) == (time_t)0)
+				return 1;
+
+			now = slap_get_time();
+
+			/* Already reached ? apply lockout */
+			if (now > then)
+				return 1;
 		}
 	}
 
